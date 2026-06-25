@@ -1,10 +1,16 @@
-# Localauth0
+# Localauth0 — CleverTap fork
 
-[![Build Status](https://github.com/primait/localauth0/actions/workflows/ci.yml/badge.svg)](https://github.com/primait/localauth0/actions/workflows/ci.yml/badge.svg)
+[![CI](https://github.com/CleverTap-Platform/localauth0/actions/workflows/ci.yml/badge.svg)](https://github.com/CleverTap-Platform/localauth0/actions/workflows/ci.yml)
 
 ![localauth0](web/assets/static/media/localauth0.png)
 
-Localauth0 is a project that aims to be a helper while developing
+CleverTap-internal fork of [primait/localauth0](https://github.com/primait/localauth0)
+with patches to make it a drop-in replacement for the real Auth0 tenant during
+local Integration Test Framework (ITF) runs. See [CHANGELOG.md](./CHANGELOG.md)
+for the upstream history; CleverTap deltas live on the `master` branch under
+the QAP-804 commit and onward.
+
+Original description: a project that aims to be a helper while developing
 authentications inspired by [localstack](https://localstack.cloud/). Most of the
 time people tend to mock authentication in order to not be forced to create
 complex mocks. With localauth0 you can fake your [auth0](https://auth0.com/)
@@ -24,16 +30,27 @@ tenant and test it offline for "real".
 
 ## Installation
 
-In order to run localauth0 docker image execute the following:
+The CleverTap fork is **built from source** — no pre-published image. Two
+build paths:
 
-```shell
-docker run -d -p 3000:3000 public.ecr.aws/primaassicurazioni/localauth0:0.9.1
-```
+1. **Via Ultron `local-setup`** (the canonical path for ITF):
+   `local-setup/services/docker-compose.localauth0.yaml` builds the image
+   from this repo via `Dockerfile.runtime` and runs it on the `ct_default`
+   bridge network. See QAP-804 in Ultron for details.
 
-By default, the container exposes an http server on the port 3000 and an https
-one on port 3001.
+2. **Standalone for ad-hoc testing**:
 
-Note: The latest version is the same `version` written in the `Cargo.toml` file.
+   ```shell
+   git clone git@github.com:CleverTap-Platform/localauth0.git
+   cd localauth0
+   docker build -f Dockerfile.runtime -t clevertap/localauth0:itf .
+   docker run -d -p 3000:3000 clevertap/localauth0:itf
+   ```
+
+By default, the container exposes an http server on port 3000 and an https
+one on port 3001. The ITF-tuned `localauth0.toml` (mounted by local-setup)
+binds them to 3300/3301 instead — see the seed in
+`local-setup/configs/localauth0/`.
 
 ## APIs
 
@@ -248,7 +265,7 @@ Add this snippet to your `docker-compose.yml` file and reference it in your app
 
 ```yaml
 auth0:
-  image: public.ecr.aws/primaassicurazioni/localauth0:0.9.1
+  image: clevertap/localauth0:itf  # built locally — see Installation
   healthcheck:
     test: ["CMD", "/localauth0", "healthcheck"]
   ports:
@@ -263,7 +280,7 @@ example:
 
 ```yaml
 auth0:
-  image: public.ecr.aws/primaassicurazioni/localauth0:0.9.0
+  image: clevertap/localauth0:itf  # built locally — see Installation
   healthcheck:
     test: ["CMD", "/localauth0", "healthcheck"]
   ports:
@@ -292,7 +309,7 @@ Then mount the file in the container using the following snippet in your
 
 ```yaml
 auth0:
-  image: public.ecr.aws/primaassicurazioni/localauth0:0.9.0
+  image: clevertap/localauth0:itf  # built locally — see Installation
   healthcheck:
     test: ["CMD", "/localauth0", "healthcheck"]
   environment:
