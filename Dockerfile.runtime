@@ -1,0 +1,48 @@
+# Slim, API-only runtime image (multi-stage) — distinct from the dev-only
+# `Dockerfile`, which sets up a full build environment (Rust + trunk) for the
+# web UI.
+#
+# This image builds only the server binary and serves the JSON/redirect
+# endpoints; the Yew web UI is intentionally not built here. It exists so
+# `docker build -f Dockerfile.runtime` (or a docker-compose build) produces a
+# ready-to-run container without a local Rust/trunk toolchain.
+
+FROM rust:1.96-slim-bookworm AS builder
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config libssl-dev ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+
+# The actix Files fallback mounts ./web/dist as static; provide a placeholder
+# so the SPA-fallback handler does not 500 when a browser hits an unmatched
+# path. The real Yew SPA is intentionally not built in this slim image —
+# callers use the JSON/redirect endpoints, not the web UI.
+RUN mkdir -p web/dist && \
+    printf '<!doctype html><title>localauth0</title>\n' > web/dist/index.html
+
+RUN cargo build --release --bin localauth0
+
+# --- Runtime stage ----------------------------------------------------------
+
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libssl3 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /
+
+COPY --from=builder /build/target/release/localauth0 /localauth0
+COPY --from=builder /build/web /web
+
+ENV RUST_LOG=info,localauth0=info
+
+HEALTHCHECK --interval=5s --timeout=2s --start-period=2s --retries=3 \
+    CMD ["/localauth0", "healthcheck"]
+
+CMD ["/localauth0"]

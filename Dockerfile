@@ -1,12 +1,16 @@
-FROM public.ecr.aws/primaassicurazioni/rust:1.96.0
+FROM rust:1.96.0-slim-bookworm
 
 WORKDIR /code
 
 ENV CARGO_HOME=/home/app/.cargo
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config libssl-dev ca-certificates curl git \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY entrypoint /code/entrypoint
 
-# Needed to have the same file owner in the container and in Linux host
+RUN useradd -m app && chown -R app:app /code /home/app
 USER app
 
 RUN rustup target add wasm32-unknown-unknown

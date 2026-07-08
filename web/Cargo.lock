@@ -228,9 +228,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi",
  "wasip2",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -802,7 +804,7 @@ name = "localauth0_web"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "getrandom 0.2.16",
+ "getrandom 0.3.4",
  "gloo-timers 0.3.0",
  "js-sys",
  "log",
