@@ -15,20 +15,20 @@ jobs:
         arch: [x86_64-unknown-linux-musl, aarch64-unknown-linux-musl]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6.0.3
+      - uses: actions/checkout@v7.0.0
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # ratchet:Swatinem/rust-cache@v2
         with:
           key: "${{ matrix.arch }}"
 
-      - uses: taiki-e/install-action@5651179950649c44da31d346537e20c0534f0f25 # ratchet:taiki-e/install-action@v2
+      - uses: taiki-e/install-action@ace6ebe54a6a0c86dfb5f7764b17f793b6925bc3 # ratchet:taiki-e/install-action@v2
         with:
           tool: cross
 
       - name: Build 
         run: cross build --features vendor-openssl --release --target "${{ matrix.arch }}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: localauth0-${{ matrix.arch }}
           path: |
@@ -37,17 +37,17 @@ jobs:
   build-web:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6.0.3
+      - uses: actions/checkout@v7.0.0
       - run: rustup target add wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # ratchet:Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@5651179950649c44da31d346537e20c0534f0f25 # ratchet:taiki-e/install-action@v2
+      - uses: taiki-e/install-action@ace6ebe54a6a0c86dfb5f7764b17f793b6925bc3 # ratchet:taiki-e/install-action@v2
         with:
           tool: trunk@0.17
 
       - name: Build web
         run: trunk build --release web/index.html
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: web
           path: ./web/dist
@@ -93,14 +93,14 @@ jobs:
            done
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@v6.2.0
         with:
           role-to-assume: arn:aws:iam::193543784330:role/oidc-github-ecr-localauth0
           aws-region: us-east-1
 
       - name: Login to public ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2.1.5
+        uses: aws-actions/amazon-ecr-login@v2.1.6
         with:
           mask-password: "true"
           registry-type: public
