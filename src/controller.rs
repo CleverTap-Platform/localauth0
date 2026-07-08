@@ -193,10 +193,10 @@ pub async fn authorize(app_data: Data<AppData>, query: Query<AuthorizeQuery>) ->
 }
 
 /// HTML login form, served at `/u/login?state=<state_token>`. The form posts
-/// to `/u/login/password` so browser-driven tests (Playwright) can fill the
+/// to `/u/login/password` so browser-driven tests can fill the
 /// `input[name="username"]` and `input[name="password"]` selectors and click
-/// the primary action button — matching the selectors the ITF `BrowserAuth.java`
-/// targets against real Auth0.
+/// the primary action button (`[data-action-button-primary]`) — the same
+/// selectors a driver would target against real Auth0's hosted login page.
 #[get("/u/login")]
 pub async fn login_page(app_data: Data<AppData>, query: Query<StateQuery>) -> HttpResponse {
     let state = &query.state;
@@ -239,9 +239,8 @@ pub async fn login_page(app_data: Data<AppData>, query: Query<StateQuery>) -> Ht
 /// First leg of the Auth0 hosted-login dance. Stores the supplied `username`
 /// on the `LoginState` keyed by `state_token`, then 302s to the password step.
 /// Real Auth0 returns a 302 to `/u/login/password?state=...`; we mirror that.
-/// Accepts either JSON or form-urlencoded bodies because the ITF
-/// `DashboardAutomation` POSTs JSON while a real browser form would post
-/// form-urlencoded.
+/// Accepts either JSON or form-urlencoded bodies: automated clients typically
+/// POST JSON while a real browser form posts form-urlencoded.
 #[post("/u/login/identifier")]
 pub async fn login_identifier(
     app_data: Data<AppData>,
@@ -276,9 +275,9 @@ pub async fn login_identifier(
 
 /// Second leg of the hosted-login dance. Validates `username` + `password`
 /// against the users store, then 302s to `/authorize/resume?state=<state_token>`
-/// where the auth code is minted. The identifier step may be skipped (the JVM
-/// DashboardAutomation sometimes calls /password directly) — in that case the
-/// username from the body is what gets bound to the login state.
+/// where the auth code is minted. The identifier step may be skipped (some
+/// clients call /password directly) — in that case the username from the body
+/// is what gets bound to the login state.
 #[post("/u/login/password")]
 pub async fn login_password(
     app_data: Data<AppData>,
@@ -377,9 +376,8 @@ pub async fn authorize_resume(app_data: Data<AppData>, query: Query<StateQuery>)
     HttpResponse::Found().append_header(("Location", location)).finish()
 }
 
-/// Auth0-shaped `/v2/logout` endpoint. The dashboard JVM builds URLs of the form
-/// `<auth0_domain>v2/logout?federated&client_id=<id>&returnTo=<url>` (see
-/// `dashboard/dashboard/src/com/wizrocket/dashboard/utils/Auth0Util.java` `getAuth0LogoutURL`).
+/// Auth0-shaped `/v2/logout` endpoint. Auth0 clients build URLs of the form
+/// `<auth0_domain>v2/logout?federated&client_id=<id>&returnTo=<url>`.
 /// We honour `returnTo` and ignore the rest. If `returnTo` is missing we return a
 /// plaintext 200 so the caller does not crash. The query string is parsed manually
 /// because real Auth0 callers send bare flags (e.g. `federated`) which the standard
@@ -582,7 +580,7 @@ mod test {
         [access_token]
         custom_claims = [
             { name = "at_custom_claims_str", value = { String = "str" } },
-            { name = "https://clevertap.com/app_metadata", value = { Object = { regions = ["us"], accountMFA = false } } }
+            { name = "https://example.com/app_metadata", value = { Object = { regions = ["us"], accountMFA = false } } }
         ]
 
         "#;
@@ -614,7 +612,7 @@ mod test {
 
         assert_eq!(claims_json.get("at_custom_claims_str").unwrap(), "str");
         assert_eq!(
-            claims_json.get("https://clevertap.com/app_metadata").unwrap(),
+            claims_json.get("https://example.com/app_metadata").unwrap(),
             &json!({ "regions": ["us"], "accountMFA": false })
         );
 
@@ -925,8 +923,8 @@ mod test {
 
         let app = test::init_service(App::new().service(logout)).await;
 
-        // Mimics the exact shape Auth0Util.getAuth0LogoutURL builds: bare `federated`
-        // flag, plus client_id and returnTo. The handler must tolerate the bare flag.
+        // Mimics the shape Auth0 logout URLs take: bare `federated` flag, plus
+        // client_id and returnTo. The handler must tolerate the bare flag.
         let req = test::TestRequest::get()
             .uri("/v2/logout?federated&client_id=client_id&returnTo=https://example.com/login.html")
             .to_request();
@@ -965,9 +963,9 @@ mod test {
 
     /// End-to-end: `/authorize` → `/u/login/identifier` → `/u/login/password` →
     /// `/authorize/resume` → `/oauth/token` (grant_type=authorization_code).
-    /// This is the exact sequence the ITF `DashboardAutomation` Branch D drives
+    /// This is the full hosted-login sequence a browser-driven client drives
     /// against real Auth0. Verifies that the resulting id_token carries the
-    /// `admin@clevertap.com` user's identity (not the singleton user_info).
+    /// logged-in user's identity (not the singleton user_info).
     #[actix_web::test]
     async fn auth0_login_flow_end_to_end() {
         use super::{authorize, authorize_resume, login_identifier, login_password, token};
@@ -981,18 +979,18 @@ mod test {
         email = "default@example.com"
 
         [[user]]
-        email = "admin@clevertap.com"
+        email = "admin@example.com"
         password = "Adminp@sswd0"
         subject = "auth0|local-admin"
         name = "admin"
         email_verified = true
         custom_fields = [
-          { name = "https://clevertap.com/app_metadata", value = { Object = { regions = ["local"], accountMFA = false } } },
-          { name = "https://clevertap.com/connectionName", value = { String = "Username-Password-Authentication" } }
+          { name = "https://example.com/app_metadata", value = { Object = { regions = ["local"], accountMFA = false } } },
+          { name = "https://example.com/connectionName", value = { String = "Username-Password-Authentication" } }
         ]
 
         [[audience]]
-        name = "https://clevertap.com"
+        name = "https://example.com"
         permissions = []
         "#;
         let config: Config = toml::from_str(config_str).unwrap();
@@ -1010,7 +1008,7 @@ mod test {
         // Step 1: GET /authorize → 302 to /u/login?state=<state_token>
         let authorize_uri = "/authorize?\
             client_id=client_id&\
-            audience=https://clevertap.com&\
+            audience=https://example.com&\
             redirect_uri=http://localhost:8080/auth0-callback&\
             scope=openid&\
             response_type=code&\
@@ -1025,7 +1023,7 @@ mod test {
 
         // Step 2: POST /u/login/identifier?state=... with the username (action ignored)
         let identifier_body = serde_json::json!({
-            "username": "admin@clevertap.com",
+            "username": "admin@example.com",
             "action": "default",
             "js-available": true,
         });
@@ -1041,7 +1039,7 @@ mod test {
 
         // Step 3: POST /u/login/password?state=... with valid creds
         let password_body = serde_json::json!({
-            "username": "admin@clevertap.com",
+            "username": "admin@example.com",
             "password": "Adminp@sswd0",
             "state": state_token,
             "action": "default",
@@ -1095,22 +1093,22 @@ mod test {
         let claims = extract_payload(id_token);
 
         assert_eq!(claims["sub"], "auth0|local-admin");
-        assert_eq!(claims["email"], "admin@clevertap.com");
+        assert_eq!(claims["email"], "admin@example.com");
         assert_eq!(claims["name"], "admin");
         assert_eq!(claims["nonce"], "nonce-xyz");
         // The Object custom field flattens to a top-level claim.
         assert_eq!(
-            claims["https://clevertap.com/app_metadata"],
+            claims["https://example.com/app_metadata"],
             serde_json::json!({ "regions": ["local"], "accountMFA": false })
         );
         assert_eq!(
-            claims["https://clevertap.com/connectionName"],
+            claims["https://example.com/connectionName"],
             "Username-Password-Authentication"
         );
 
         let access_token = token_response["access_token"].as_str().unwrap();
         let access_claims = extract_payload(access_token);
-        assert_eq!(access_claims["aud"], "https://clevertap.com");
+        assert_eq!(access_claims["aud"], "https://example.com");
         assert_eq!(access_claims["gty"], "authorization_code");
     }
 
@@ -1123,11 +1121,11 @@ mod test {
         issuer = "http://localauth0:3000/"
 
         [[user]]
-        email = "admin@clevertap.com"
+        email = "admin@example.com"
         password = "Adminp@sswd0"
 
         [[audience]]
-        name = "https://clevertap.com"
+        name = "https://example.com"
         permissions = []
         "#;
         let config: Config = toml::from_str(config_str).unwrap();
@@ -1141,7 +1139,7 @@ mod test {
 
         // /authorize → state
         let req = test::TestRequest::get()
-            .uri("/authorize?client_id=client_id&audience=https://clevertap.com&redirect_uri=http://localhost:8080/auth0-callback")
+            .uri("/authorize?client_id=client_id&audience=https://example.com&redirect_uri=http://localhost:8080/auth0-callback")
             .to_request();
         let resp = test::call_service(&app, req).await;
         let location = resp.headers().get("Location").unwrap().to_str().unwrap();
@@ -1149,7 +1147,7 @@ mod test {
 
         // wrong password → 401
         let body = serde_json::json!({
-            "username": "admin@clevertap.com",
+            "username": "admin@example.com",
             "password": "wrong",
         });
         let req = test::TestRequest::post()

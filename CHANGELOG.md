@@ -8,6 +8,25 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- Multiple configurable login users via `[[user]]` entries (email/password plus
+  per-user id_token claims), backed by a users store and an Auth0-shaped
+  hosted-login flow (`/u/login`, `/u/login/identifier`, `/u/login/password`).
+- Nested/object custom claim and user-info values (`CustomFieldValue::Object`),
+  in addition to the existing string and list-of-string values.
+- Optional pinned signing key via `[jwks] private_key_pem_path` + `kid`, so the
+  `kid` stays stable across `/rotate`, `/revoke`, and restarts. Without it, the
+  previous behaviour (three RSA-2048 keys with random UUIDs) is unchanged.
+- Auth0-shaped `GET /v2/logout` endpoint that honours `returnTo`.
+- Login/token endpoints accept both JSON and form-urlencoded bodies.
+
+### Fixed
+
+- Build with a current toolchain: added an explicit Trunk `rust` link + `<body>`
+  to `web/index.html`, and moved the direct `getrandom` dependency to `0.3`
+  (`wasm_js` feature) to match the version pulled by `rand`.
+
 ---
 
 ## [0.9.1] - 2026-06-19

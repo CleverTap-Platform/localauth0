@@ -1,20 +1,21 @@
-# Localauth0 — CleverTap fork
+# Localauth0
 
 [![CI](https://github.com/CleverTap-Platform/localauth0/actions/workflows/ci.yml/badge.svg)](https://github.com/CleverTap-Platform/localauth0/actions/workflows/ci.yml)
 
 ![localauth0](web/assets/static/media/localauth0.png)
 
-CleverTap-internal fork of [primait/localauth0](https://github.com/primait/localauth0)
-with patches to make it a drop-in replacement for the real Auth0 tenant during
-local Integration Test Framework (ITF) runs. See [CHANGELOG.md](./CHANGELOG.md)
-for the upstream history; CleverTap deltas live on the `master` branch under
-the QAP-804 commit and onward.
+A helper for developing and testing authentication, inspired by
+[localstack](https://localstack.cloud/). Instead of writing complex auth mocks,
+localauth0 lets you fake an [auth0](https://auth0.com/) tenant and test against
+it offline for "real" — it mints signed JWTs, serves a JWKS endpoint, and
+emulates Auth0's hosted-login and logout flows.
 
-Original description: a project that aims to be a helper while developing
-authentications inspired by [localstack](https://localstack.cloud/). Most of the
-time people tend to mock authentication in order to not be forced to create
-complex mocks. With localauth0 you can fake your [auth0](https://auth0.com/)
-tenant and test it offline for "real".
+This repository is a fork of [primait/localauth0](https://github.com/primait/localauth0);
+see [CHANGELOG.md](./CHANGELOG.md) for what the fork adds (multi-user login,
+nested/custom claims, a pinnable signing key, and an Auth0-shaped `/v2/logout`).
+It remains standalone software usable by any project — configure the tenant to
+match whatever system you are testing. One common use is as a drop-in Auth0 for
+local integration-test suites (see [Installation](#installation)).
 
 ## Table of contents
 
@@ -30,27 +31,29 @@ tenant and test it offline for "real".
 
 ## Installation
 
-The CleverTap fork is **built from source** — no pre-published image. Two
-build paths:
+This fork is **built from source** — there is no pre-published image.
 
-1. **Via Ultron `local-setup`** (the canonical path for ITF):
-   `local-setup/services/docker-compose.localauth0.yaml` builds the image
-   from this repo via `Dockerfile.runtime` and runs it on the `ct_default`
-   bridge network. See QAP-804 in Ultron for details.
+Build a slim runtime image and run it:
 
-2. **Standalone for ad-hoc testing**:
+```shell
+git clone git@github.com:CleverTap-Platform/localauth0.git
+cd localauth0
+docker build -f Dockerfile.runtime -t localauth0:local .
+docker run -d -p 3000:3000 localauth0:local
+```
 
-   ```shell
-   git clone git@github.com:CleverTap-Platform/localauth0.git
-   cd localauth0
-   docker build -f Dockerfile.runtime -t clevertap/localauth0:itf .
-   docker run -d -p 3000:3000 clevertap/localauth0:itf
-   ```
+By default the container exposes an http server on port 3000 and an https one
+on port 3001. Both the ports and the tenant (issuer, users, audiences, claims)
+are configured via `localauth0.toml` or the `LOCALAUTH0_CONFIG` environment
+variable — see [Configuration](#configuration).
 
-By default, the container exposes an http server on port 3000 and an https
-one on port 3001. The ITF-tuned `localauth0.toml` (mounted by local-setup)
-binds them to 3300/3301 instead — see the seed in
-`local-setup/configs/localauth0/`.
+`Dockerfile.runtime` produces a slim, API-only image (it does not build the Yew
+web UI); use the dev `Dockerfile` (see [Local development](#local-development))
+if you want the browser UI too.
+
+> Integration-test setups can consume this image directly and supply their own
+> mounted `localauth0.toml` to shape the tenant to match the system under test —
+> no changes to this repository are required.
 
 ## APIs
 
@@ -265,7 +268,7 @@ Add this snippet to your `docker-compose.yml` file and reference it in your app
 
 ```yaml
 auth0:
-  image: clevertap/localauth0:itf  # built locally — see Installation
+  image: localauth0:local  # built locally — see Installation
   healthcheck:
     test: ["CMD", "/localauth0", "healthcheck"]
   ports:
@@ -280,7 +283,7 @@ example:
 
 ```yaml
 auth0:
-  image: clevertap/localauth0:itf  # built locally — see Installation
+  image: localauth0:local  # built locally — see Installation
   healthcheck:
     test: ["CMD", "/localauth0", "healthcheck"]
   ports:
@@ -309,7 +312,7 @@ Then mount the file in the container using the following snippet in your
 
 ```yaml
 auth0:
-  image: clevertap/localauth0:itf  # built locally — see Installation
+  image: localauth0:local  # built locally — see Installation
   healthcheck:
     test: ["CMD", "/localauth0", "healthcheck"]
   environment:

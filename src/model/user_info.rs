@@ -128,7 +128,7 @@ mod tests {
         custom_fields = [
             { name = "custom_field_str", value = { String = "str" } },
             { name = "custom_field_vec", value = { Vec = ["vec"] } },
-            { name = "https://clevertap.com/app_metadata", value = { Object = { regions = ["us"], accountMFA = false } } }
+            { name = "https://example.com/app_metadata", value = { Object = { regions = ["us"], accountMFA = false } } }
         ]
 
         [[audience]]
@@ -160,7 +160,7 @@ mod tests {
             "updated_at": config.user_info().updated_at().to_rfc3339_opts(SecondsFormat::Millis, true),
             "custom_field_str": "str",
             "custom_field_vec": ["vec"],
-            "https://clevertap.com/app_metadata": { "regions": ["us"], "accountMFA": false }
+            "https://example.com/app_metadata": { "regions": ["us"], "accountMFA": false }
         });
 
         assert_eq!(value, asserted);

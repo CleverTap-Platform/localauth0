@@ -1,11 +1,11 @@
-# Runtime Dockerfile for CleverTap ITF local-setup integration.
-# Builds a minimal runtime image (multi-stage) — distinct from the upstream
-# `Dockerfile` which is a dev-only build environment.
+# Slim, API-only runtime image (multi-stage) — distinct from the dev-only
+# `Dockerfile`, which sets up a full build environment (Rust + trunk) for the
+# web UI.
 #
-# The CI release pipeline at .github/workflows/cd.yml uses `cross` + `buildah`
-# to produce the canonical scratch/alpine images; this Dockerfile exists so
-# `docker compose build localauth0` works out of the box inside the Ultron
-# `local-setup/` orchestration without depending on CI artefacts.
+# This image builds only the server binary and serves the JSON/redirect
+# endpoints; the Yew web UI is intentionally not built here. It exists so
+# `docker build -f Dockerfile.runtime` (or a docker-compose build) produces a
+# ready-to-run container without a local Rust/trunk toolchain.
 
 FROM rust:1.96-slim-bookworm AS builder
 
@@ -20,8 +20,8 @@ COPY src ./src
 
 # The actix Files fallback mounts ./web/dist as static; provide a placeholder
 # so the SPA-fallback handler does not 500 when a browser hits an unmatched
-# path. The real Yew SPA is intentionally not built here — ITF callers hit
-# JSON/redirect endpoints, not the SPA.
+# path. The real Yew SPA is intentionally not built in this slim image —
+# callers use the JSON/redirect endpoints, not the web UI.
 RUN mkdir -p web/dist && \
     printf '<!doctype html><title>localauth0</title>\n' > web/dist/index.html
 

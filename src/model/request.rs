@@ -92,18 +92,17 @@ pub struct StateQuery {
     pub state: String,
 }
 
-/// Body of `POST /u/login/identifier`. Real Auth0 clients (and the ITF
-/// DashboardAutomation) post additional fields like `js-available` and
-/// `action: "default"`; serde ignores them.
+/// Body of `POST /u/login/identifier`. Real Auth0 clients post additional
+/// fields like `js-available` and `action: "default"`; serde ignores them.
 #[derive(Deserialize)]
 #[cfg_attr(test, derive(serde::Serialize))]
 pub struct UserLoginIdentifierRequest {
     pub username: String,
 }
 
-/// Body of `POST /u/login/password`. Some callers (the ITF DashboardAutomation)
-/// also include `state` and `action` in the JSON body — `state` is also in the
-/// query string, so the body copy is redundant for us. Extra fields ignored.
+/// Body of `POST /u/login/password`. Some callers also include `state` and
+/// `action` in the JSON body — `state` is also in the query string, so the body
+/// copy is redundant for us. Extra fields ignored.
 #[derive(Deserialize)]
 #[cfg_attr(test, derive(serde::Serialize))]
 pub struct UserLoginPasswordRequest {
