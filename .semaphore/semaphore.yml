@@ -1,66 +1,185 @@
-# This is a simple Semaphore configuration file using Docker
-# For more information about Semaphore configuration visit:
-# https://docs.semaphoreci.com/reference/pipeline-yaml-reference/
+version: v1.0
+name: 'CI / CD'
 
-version: v1.0  # Semaphore configuration version
-name: "🎯 Simple CI Pipeline"  # Pipeline display name
-
-# Define the machine type, OS image, and containers
 agent:
   machine:
-    type: s1-agent-t2-micro
+    type: s1-agent-c5-large
     os_image: ''
 
-  containers:
-    - name: main
-      image: 'registry.semaphoreci.com/node:20'  # Node.js 20 container
-
-# Configure when to stop the pipeline early
 fail_fast:
   stop:
-    when: branch != 'main'  # Stop all blocks if a job fails on non-main branches
+    when: branch != 'master'
 auto_cancel:
   running:
-    when: branch != 'main'  # Cancel running pipelines on non-main branches
+    when: branch != 'master'
   queued:
-    when: branch = 'main'   # Cancel queued pipelines on main branch
+    when: branch = 'master'
 
-# Pipeline blocks represent groups of jobs that can run in parallel
+global_job_config:
+  env_vars:
+    - name: CARGO_TERM_COLOR
+      value: always
+    - name: DOCKER_IMAGE_URL
+      value: 254265454980.dkr.ecr.us-east-1.amazonaws.com/clevertap/localauth0
+    - name: ECR_REGION
+      value: us-east-1
+  prologue:
+    commands:
+      # Same idea as GH Actions rustup + taiki-e install-action (trunk/cross)
+      - |
+        set -euo pipefail
+        if ! command -v rustc >/dev/null 2>&1; then
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+        fi
+        # shellcheck disable=SC1090
+        source "$HOME/.cargo/env"
+        rustup component add rustfmt clippy
+        rustup target add wasm32-unknown-unknown
+        if ! command -v trunk >/dev/null 2>&1; then
+          cargo install --locked --version 0.17.5 trunk
+        fi
+
 blocks:
-  # Block for testing
-  - name: "🧪 Test"
+  - name: CI
     dependencies: []
     task:
       jobs:
-        - name: "🟢 Run Tests"
+        - name: Lint
           commands:
-            - echo "Checking out code..."
-            - echo "Installing dependencies..."
-            - echo "Running test suite in container..."
-            - echo "Tests completed successfully!"
+            - checkout
+            - source "$HOME/.cargo/env"
+            - cargo build --workspace --all-features
+            - cargo fmt --all -- --check
+            - cargo clippy --workspace --all-features -- -D warnings
+            - RUSTDOCFLAGS=-Dwarnings cargo doc --document-private-items --workspace --all-features --no-deps
+            - trunk build web/index.html
 
-  # Block for building Docker image
-  - name: "🐳 Docker"
-    dependencies: ["🧪 Test"]
-    task:
-      secrets:
-        - name: dockerhub-credentials
-      jobs:
-        - name: "📦 Build and Push"
+        - name: Test
           commands:
-            - echo "Logging into Docker registry..."
-            - echo "Building Docker image..."
-            - echo "Pushing image to registry..."
-            - echo "Docker image published successfully!"
+            - checkout
+            - source "$HOME/.cargo/env"
+            - cargo test
 
-  # Block for deployment
-  - name: "🚀 Deploy"
-    dependencies: ["🐳 Docker"]  # Only deploy if Docker build succeeds
+  - name: CD Build
+    dependencies: ["CI"]
     task:
       jobs:
-        - name: "🌍 Deploy to Production"
+        - name: Build x86_64-unknown-linux-musl
           commands:
-            - echo "Preparing deployment..."
-            - echo "Updating container version..."
-            - echo "Rolling out new containers..."
-            - echo "Deployment completed successfully!"
+            - checkout
+            - source "$HOME/.cargo/env"
+            - |
+              set -euo pipefail
+              if ! command -v cross >/dev/null 2>&1; then
+                cargo install --locked cross
+              fi
+              TARGET=x86_64-unknown-linux-musl
+              cross build --features vendor-openssl --release --target "${TARGET}"
+              mkdir -p "localauth0-${TARGET}"
+              cp "target/${TARGET}/release/localauth0" "localauth0-${TARGET}/localauth0"
+              artifact push workflow "localauth0-${TARGET}"
+
+        - name: Build aarch64-unknown-linux-musl
+          commands:
+            - checkout
+            - source "$HOME/.cargo/env"
+            - |
+              set -euo pipefail
+              if ! command -v cross >/dev/null 2>&1; then
+                cargo install --locked cross
+              fi
+              TARGET=aarch64-unknown-linux-musl
+              cross build --features vendor-openssl --release --target "${TARGET}"
+              mkdir -p "localauth0-${TARGET}"
+              cp "target/${TARGET}/release/localauth0" "localauth0-${TARGET}/localauth0"
+              artifact push workflow "localauth0-${TARGET}"
+
+        - name: Build web
+          commands:
+            - checkout
+            - source "$HOME/.cargo/env"
+            - |
+              set -euo pipefail
+              trunk build --release web/index.html
+              mkdir -p web/dist
+              if [ -d dist ]; then cp -a dist/. web/dist/; fi
+              artifact push workflow web
+
+  - name: CD Release
+    dependencies: ["CD Build"]
+    task:
+      jobs:
+        - name: Create container and push
+          commands:
+            - checkout
+            - |
+              set -euo pipefail
+              export BUILD_ID=$(echo "semaphore-${SEMAPHORE_GIT_WORKING_BRANCH}-${SEMAPHORE_WORKFLOW_NUMBER}" | sed -r 's/[\/_]+/-/g')
+              echo "BUILD_ID=${BUILD_ID}"
+
+              artifact pull workflow localauth0-x86_64-unknown-linux-musl
+              artifact pull workflow localauth0-aarch64-unknown-linux-musl
+              artifact pull workflow web
+
+              chmod +x localauth0-x86_64-unknown-linux-musl/localauth0
+              chmod +x localauth0-aarch64-unknown-linux-musl/localauth0
+
+              if [ -d web/dist ]; then
+                WEB_SRC=web/dist
+              else
+                WEB_SRC=web
+              fi
+
+              aws ecr get-login-password --region "${ECR_REGION}" \
+                | docker login --username AWS --password-stdin 254265454980.dkr.ecr.us-east-1.amazonaws.com
+
+              for base in scratch alpine; do
+                TAG_SUFFIX=""
+                [ "$base" = "alpine" ] && TAG_SUFFIX="-alpine"
+
+                for arch in amd64 arm64; do
+                  rust_arch="$([ "$arch" = "arm64" ] && echo aarch64 || echo x86_64)-unknown-linux-musl"
+                  binary="./localauth0-${rust_arch}/localauth0"
+
+                  ctx=".semaphore/runtime-${base}-${arch}"
+                  rm -rf "${ctx}"
+                  mkdir -p "${ctx}/web/dist"
+                  cp "${binary}" "${ctx}/localauth0"
+                  chmod +x "${ctx}/localauth0"
+                  cp -a "${WEB_SRC}/." "${ctx}/web/dist/"
+
+                  if [ "$base" = "scratch" ]; then
+                    printf '%s\n' \
+                      'FROM scratch' \
+                      'COPY localauth0 /localauth0' \
+                      'COPY web/dist/ /web/dist/' \
+                      'ENV RUST_LOG=error,localauth0=info' \
+                      'CMD ["/localauth0"]' \
+                      > "${ctx}/Dockerfile"
+                  else
+                    printf '%s\n' \
+                      'FROM alpine:3.20' \
+                      'COPY localauth0 /localauth0' \
+                      'COPY web/dist/ /web/dist/' \
+                      'ENV RUST_LOG=error,localauth0=info' \
+                      'CMD ["/localauth0"]' \
+                      > "${ctx}/Dockerfile"
+                  fi
+
+                  docker buildx build \
+                    --progress=plain \
+                    --platform "linux/${arch}" \
+                    -f "${ctx}/Dockerfile" \
+                    -t "${DOCKER_IMAGE_URL}:${BUILD_ID}${TAG_SUFFIX}-${arch}" \
+                    --load \
+                    "${ctx}"
+                done
+
+                docker manifest create --amend \
+                  "${DOCKER_IMAGE_URL}:${BUILD_ID}${TAG_SUFFIX}" \
+                  "${DOCKER_IMAGE_URL}:${BUILD_ID}${TAG_SUFFIX}-amd64" \
+                  "${DOCKER_IMAGE_URL}:${BUILD_ID}${TAG_SUFFIX}-arm64"
+                docker manifest push "${DOCKER_IMAGE_URL}:${BUILD_ID}${TAG_SUFFIX}"
+              done
+
+              sem-context put DOCKER_IMAGE_TAG="${BUILD_ID}"
