@@ -110,9 +110,14 @@ blocks:
             - |
               set -euo pipefail
               trunk build --release web/index.html
-              mkdir -p web/dist
-              if [ -d dist ]; then cp -a dist/. web/dist/; fi
-              artifact push workflow web
+              # Push as web-dist so CD Release checkout's web/ does not collide
+              mkdir -p web-dist
+              if [ -d dist ]; then
+                cp -a dist/. web-dist/
+              elif [ -d web/dist ]; then
+                cp -a web/dist/. web-dist/
+              fi
+              artifact push workflow web-dist
 
   - name: CD Release
     dependencies: ["CD Build"]
@@ -128,16 +133,14 @@ blocks:
 
               artifact pull workflow localauth0-x86_64-unknown-linux-musl
               artifact pull workflow localauth0-aarch64-unknown-linux-musl
-              artifact pull workflow web
+              rm -rf web-dist
+              artifact pull workflow web-dist --force
 
               chmod +x localauth0-x86_64-unknown-linux-musl/localauth0
               chmod +x localauth0-aarch64-unknown-linux-musl/localauth0
 
-              if [ -d web/dist ]; then
-                WEB_SRC=web/dist
-              else
-                WEB_SRC=web
-              fi
+              WEB_SRC=web-dist
+              test -d "${WEB_SRC}" || { echo "web-dist artifact missing"; ls -la; exit 1; }
 
               aws ecr get-login-password --region "${ECR_REGION}" \
                 | docker login --username AWS --password-stdin 254265454980.dkr.ecr.us-east-1.amazonaws.com
