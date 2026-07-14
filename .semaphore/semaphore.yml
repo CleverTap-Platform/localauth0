@@ -25,7 +25,16 @@ global_job_config:
       value: us-east-1
   prologue:
     commands:
-      # Same idea as GH Actions rustup + taiki-e install-action (trunk/cross)
+      - |
+        set -euo pipefail
+        if command -v yum >/dev/null 2>&1; then
+          sudo yum install -y pkgconfig openssl-devel perl-core gcc make
+        elif command -v dnf >/dev/null 2>&1; then
+          sudo dnf install -y pkgconf-pkg-config openssl-devel perl-core gcc make
+        elif command -v apt-get >/dev/null 2>&1; then
+          sudo apt-get update -y
+          sudo apt-get install -y pkg-config libssl-dev perl build-essential
+        fi
       - |
         set -euo pipefail
         if ! command -v rustc >/dev/null 2>&1; then
@@ -58,7 +67,7 @@ blocks:
           commands:
             - checkout
             - source "$HOME/.cargo/env"
-            - cargo test
+            - cargo test --features vendor-openssl
 
   - name: CD Build
     dependencies: ["CI"]
