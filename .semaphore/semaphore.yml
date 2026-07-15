@@ -178,16 +178,21 @@ blocks:
                       > "${ctx}/Dockerfile"
                   fi
 
+                  # Push each arch to ECR first — manifest create needs registry images,
+                  # and --load cannot keep non-native arch (arm64) on an amd64 agent.
                   docker buildx build \
                     --progress=plain \
                     --platform "linux/${arch}" \
+                    --provenance=false \
+                    --sbom=false \
                     -f "${ctx}/Dockerfile" \
                     -t "${DOCKER_IMAGE_URL}:${BUILD_ID}${TAG_SUFFIX}-${arch}" \
-                    --load \
+                    --push \
                     "${ctx}"
                 done
 
-                docker manifest create --amend \
+                docker manifest rm "${DOCKER_IMAGE_URL}:${BUILD_ID}${TAG_SUFFIX}" 2>/dev/null || true
+                docker manifest create \
                   "${DOCKER_IMAGE_URL}:${BUILD_ID}${TAG_SUFFIX}" \
                   "${DOCKER_IMAGE_URL}:${BUILD_ID}${TAG_SUFFIX}-amd64" \
                   "${DOCKER_IMAGE_URL}:${BUILD_ID}${TAG_SUFFIX}-arm64"
