@@ -515,6 +515,14 @@ fn new_token_response(
         .expect("Failed to get custom claims")
         .to_owned();
 
+    // Opaque refresh token, issued only for the login (authorization_code)
+    // flow — consumers only ever check for its presence within a local
+    // session's lifetime; the access token itself outlives any test run.
+    let refresh_token: Option<String> = match grant_type {
+        GrantType::AuthorizationCode => Some(uuid::Uuid::new_v4().to_string()),
+        GrantType::ClientCredentials => None,
+    };
+
     let claims: Claims = Claims::new(
         audience.to_string(),
         permissions,
@@ -531,7 +539,7 @@ fn new_token_response(
     let access_token: String = random_jwk.encode(&claims).expect("Failed to generate JWT");
     let id_token: String = random_jwk.encode(&id_token_claims).expect("Failed to generate IdToken");
 
-    TokenResponse::new(access_token, id_token, None)
+    TokenResponse::new(access_token, id_token, None, refresh_token)
 }
 
 #[cfg(test)]
