@@ -5,8 +5,7 @@ use crate::config::UserConfig;
 use crate::error::Error;
 
 /// In-memory user table keyed by email. Seeded from `[[user]]` blocks in the
-/// TOML config at startup; mutable at runtime via the admin `/admin/users`
-/// endpoints (added separately if needed).
+/// TOML config at startup; mutable at runtime via `POST /admin/users`.
 ///
 /// Passwords are stored verbatim because this is a test fixture, not a real
 /// IdP. Comparing equality vs. real Auth0's bcrypt is intentionally absent.

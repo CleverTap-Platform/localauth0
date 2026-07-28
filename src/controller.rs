@@ -4,13 +4,15 @@ use actix_web::web::{Data, Either, Form, Json, Path, Query};
 use actix_web::{get, post, HttpRequest, HttpResponse};
 
 use crate::model::{
-    AppData, AuthorizationCodeTokenRequest, AuthorizeQuery, Claims, ClientCredentialsTokenRequest, GrantType,
-    IdTokenClaims, Jwk, Jwks, LoginRequest, LoginResponse, OpenIDMetadata, PermissionsForAudienceRequest, StateQuery,
-    TokenRequest, TokenResponse, UpdateCustomClaimsRequest, UpdateUserInfoRequest, UserInfo,
-    UserLoginIdentifierRequest, UserLoginPasswordRequest,
+    AdminUpsertUserRequest, AppData, AuthorizationCodeTokenRequest, AuthorizeQuery, Claims,
+    ClientCredentialsTokenRequest, GrantType, IdTokenClaims, Jwk, Jwks, LoginRequest, LoginResponse,
+    OpenIDMetadata, PermissionsForAudienceRequest, StateQuery, TokenRequest, TokenResponse,
+    UpdateCustomClaimsRequest, UpdateUserInfoRequest, UserInfo, UserLoginIdentifierRequest,
+    UserLoginPasswordRequest,
 };
 use crate::store::{AuthorizationData, LoginState};
 use crate::{CLIENT_ID_VALUE, CLIENT_SECRET_VALUE};
+use crate::config::UserConfig;
 
 /// Remove one jwk and generate new one
 #[get("/check")]
@@ -150,6 +152,28 @@ pub async fn set_user_info(
     HttpResponse::Ok().json(user_info)
 }
 
+/// Runtime upsert into the login password store (`POST /admin/users`). No auth — test fixture only.
+#[post("/admin/users")]
+pub async fn admin_upsert_user(
+    app_data: Data<AppData>,
+    body: Json<AdminUpsertUserRequest>,
+) -> HttpResponse {
+    let req = body.into_inner();
+    if req.email.is_empty() || req.password.is_empty() {
+        return HttpResponse::BadRequest()
+            .content_type("application/json")
+            .body(r#"{"error":"invalid_request","error_description":"email and password are required"}"#);
+    }
+
+    let user = UserConfig::from_admin_request(req);
+
+    if let Err(e) = app_data.users().put(user) {
+        return HttpResponse::InternalServerError().body(format!("Failed to upsert user: {e}"));
+    }
+
+    HttpResponse::NoContent().finish()
+}
+
 /// Remove one jwk and generate new one
 #[get("/rotate")]
 pub async fn rotate_keys(app_data: Data<AppData>) -> HttpResponse {
@@ -192,6 +216,113 @@ pub async fn authorize(app_data: Data<AppData>, query: Query<AuthorizeQuery>) ->
         .finish()
 }
 
+fn login_page_html(state: &str) -> String {
+    format!(
+        r#"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · CleverTap</title>
+  <style>
+    :root {{ --brand: #FE2A4B; --brand-hover: #d3223e; }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #f1f2f3;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      color: #2d333a;
+    }}
+    .card {{
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 12px 40px rgba(0,0,0,.12);
+      width: 100%;
+      max-width: 400px;
+      padding: 40px;
+    }}
+    .logo {{ text-align: center; margin-bottom: 28px; }}
+    h1 {{
+      font-size: 24px;
+      font-weight: 600;
+      text-align: center;
+      margin-bottom: 8px;
+    }}
+    .subtitle {{
+      text-align: center;
+      color: #65676e;
+      font-size: 14px;
+      margin-bottom: 28px;
+    }}
+    label {{
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 6px;
+    }}
+    .field {{ margin-bottom: 20px; }}
+    input[type="email"], input[type="password"] {{
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 15px;
+      border: 1px solid #c9ccd6;
+      border-radius: 4px;
+      outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }}
+    input:focus {{
+      border-color: var(--brand);
+      box-shadow: 0 0 0 3px rgba(254, 42, 75, .15);
+    }}
+    button[type="submit"] {{
+      width: 100%;
+      margin-top: 8px;
+      padding: 12px;
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+      background: var(--brand);
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background .15s;
+    }}
+    button[type="submit"]:hover {{ background: var(--brand-hover); }}
+    .footer {{
+      margin-top: 24px;
+      text-align: center;
+      font-size: 12px;
+      color: #9ea3ae;
+    }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="CleverTap"><circle cx="24" cy="24" r="24" fill='var(--brand)'/><g fill='white' transform="translate(24 24) scale(0.55) translate(-30 -32)"><path d="M33.763 62.749a33.985 33.985 0 01-7.713-.892A33.489 33.489 0 015.078 46.833 33.745 33.745 0 0115.895.407a2.7 2.7 0 013.713.866 2.694 2.694 0 01-.866 3.714 28.347 28.347 0 00-9.086 39 28.124 28.124 0 0017.618 12.62 28.128 28.128 0 0021.381-3.534 2.7 2.7 0 013.712.866 2.7 2.7 0 01-.864 3.714 33.492 33.492 0 01-17.74 5.096z"/><circle cx="57.307" cy="51.243" r="2.824"/></g></svg></div>
+    <h1>Welcome</h1>
+    <p class="subtitle">Sign in to continue to your account</p>
+    <form method="POST" action="/u/login/password?state={state}">
+      <div class="field">
+        <label for="username">Email address</label>
+        <input id="username" name="username" type="email" autocomplete="username" required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit" data-action-button-primary="true">Continue</button>
+    </form>
+    <p class="footer">Local development · localauth0</p>
+  </div>
+</body>
+</html>"#
+    )
+}
+
 /// HTML login form, served at `/u/login?state=<state_token>`. The form posts
 /// to `/u/login/password` so browser-driven tests can fill the
 /// `input[name="username"]` and `input[name="password"]` selectors and click
@@ -215,25 +346,9 @@ pub async fn login_page(app_data: Data<AppData>, query: Query<StateQuery>) -> Ht
         }
     }
 
-    let html = format!(
-        r#"<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <title>Sign in</title>
-  </head>
-  <body>
-    <form method="POST" action="/u/login/password?state={state}">
-      <label>Email <input name="username" type="email" autocomplete="username" required></label>
-      <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
-      <input name="state" type="hidden" value="{state}">
-      <button type="submit" data-action-button-primary="true">Continue</button>
-    </form>
-  </body>
-</html>"#
-    );
-
-    HttpResponse::Ok().content_type("text/html; charset=utf-8").body(html)
+    HttpResponse::Ok()
+        .content_type("text/html; charset=utf-8")
+        .body(login_page_html(state))
 }
 
 /// First leg of the Auth0 hosted-login dance. Stores the supplied `username`
@@ -1182,6 +1297,86 @@ mod test {
 
         let req = test::TestRequest::get()
             .uri("/authorize/resume?state=does-not-exist")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400);
+    }
+
+    #[actix_web::test]
+    async fn admin_upsert_user_enables_password_login() {
+        use super::{admin_upsert_user, authorize, login_password};
+        use actix_web::{http::header::ContentType, test, web::Data, App};
+
+        let config_str: &str = r#"
+        issuer = "http://localauth0:3000/"
+
+        [[audience]]
+        name = "https://example.com"
+        permissions = []
+        "#;
+        let config: Config = toml::from_str(config_str).unwrap();
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(AppData::new(&config).unwrap()))
+                .service(admin_upsert_user)
+                .service(authorize)
+                .service(login_password),
+        )
+        .await;
+
+        let upsert = serde_json::json!({
+            "email": "pool_admin_1@example.com",
+            "password": "ItfP@ss2026Feb!",
+            "name": "Pool Admin 1",
+        });
+        let req = test::TestRequest::post()
+            .uri("/admin/users")
+            .insert_header(ContentType::json())
+            .set_payload(serde_json::to_string(&upsert).unwrap())
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 204);
+
+        let req = test::TestRequest::get()
+            .uri("/authorize?client_id=client_id&audience=https://example.com&redirect_uri=http://localhost:8080/auth0-callback")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        let location = resp.headers().get("Location").unwrap().to_str().unwrap();
+        let state_token = location.strip_prefix("/u/login?state=").unwrap().to_string();
+
+        let body = serde_json::json!({
+            "username": "pool_admin_1@example.com",
+            "password": "ItfP@ss2026Feb!",
+        });
+        let req = test::TestRequest::post()
+            .uri(&format!("/u/login/password?state={state_token}"))
+            .insert_header(ContentType::json())
+            .set_payload(serde_json::to_string(&body).unwrap())
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 302);
+        let location = resp.headers().get("Location").unwrap().to_str().unwrap();
+        assert!(location.starts_with("/authorize/resume?state="));
+    }
+
+    #[actix_web::test]
+    async fn admin_upsert_user_rejects_missing_password() {
+        use super::admin_upsert_user;
+        use actix_web::{http::header::ContentType, test, web::Data, App};
+
+        let config = Config::default();
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(AppData::new(&config).unwrap()))
+                .service(admin_upsert_user),
+        )
+        .await;
+
+        let body = serde_json::json!({ "email": "x@example.com", "password": "" });
+        let req = test::TestRequest::post()
+            .uri("/admin/users")
+            .insert_header(ContentType::json())
+            .set_payload(serde_json::to_string(&body).unwrap())
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 400);

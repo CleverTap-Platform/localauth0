@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use thiserror::Error;
 
-use crate::model::{defaults, Issuer, Subject};
+use crate::model::{defaults, AdminUpsertUserRequest, Issuer, Subject};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -153,6 +153,40 @@ pub struct UserConfig {
 
     #[serde(default)]
     custom_fields: Option<Vec<CustomField>>,
+}
+
+impl UserConfig {
+    pub fn from_admin_request(req: AdminUpsertUserRequest) -> Self {
+        let local = req.email.split('@').next().unwrap_or(req.email.as_str()).to_string();
+        let display_name = req.name.unwrap_or_else(|| local.clone());
+        let subject = req
+            .subject
+            .unwrap_or_else(|| format!("auth0|{}", local.replace('_', "-")));
+        let nickname = req.nickname.unwrap_or_else(|| local.clone());
+        let (default_given, default_family) = {
+            let mut parts = display_name.split_whitespace();
+            let given = parts.next().unwrap_or("user").to_string();
+            let family = parts.collect::<Vec<_>>().join(" ");
+            (given, if family.is_empty() { "user".to_string() } else { family })
+        };
+
+        Self {
+            email: req.email,
+            password: req.password,
+            subject,
+            name: display_name,
+            given_name: req.given_name.unwrap_or(default_given),
+            family_name: req.family_name.unwrap_or(default_family),
+            nickname,
+            locale: defaults::user_info_locale(),
+            gender: defaults::user_info_gender(),
+            birthdate: defaults::user_info_birthdate(),
+            email_verified: req.email_verified.unwrap_or(true),
+            picture: req.picture.unwrap_or_else(defaults::user_info_picture),
+            updated_at: defaults::user_info_updated_at(),
+            custom_fields: req.custom_fields,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Getters, Clone)]

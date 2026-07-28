@@ -109,3 +109,26 @@ pub struct UserLoginPasswordRequest {
     pub username: String,
     pub password: String,
 }
+
+#[derive(Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
+pub struct AdminUpsertUserRequest {
+    pub email: String,
+    pub password: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub subject: Option<String>,
+    #[serde(default)]
+    pub given_name: Option<String>,
+    #[serde(default)]
+    pub family_name: Option<String>,
+    #[serde(default)]
+    pub nickname: Option<String>,
+    #[serde(default)]
+    pub email_verified: Option<bool>,
+    #[serde(default)]
+    pub picture: Option<String>,
+    #[serde(default)]
+    pub custom_fields: Option<Vec<CustomField>>,
+}

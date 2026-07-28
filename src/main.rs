@@ -113,6 +113,7 @@ fn setup_service(cfg: &mut web::ServiceConfig) {
         .service(controller::set_custom_claims)
         .service(controller::get_user_info)
         .service(controller::set_user_info)
+        .service(controller::admin_upsert_user)
         .service(controller::rotate_keys)
         .service(controller::revoke_keys)
         .service(controller::logout)

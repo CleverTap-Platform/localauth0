@@ -10,6 +10,7 @@ and this project adheres to
 
 ### Added
 
+- `POST /admin/users` — runtime upsert into the login password store (`email` + `password` required). Returns `204`.
 - Multiple configurable login users via `[[user]]` entries (email/password plus
   per-user id_token claims), backed by a users store and an Auth0-shaped
   hosted-login flow (`/u/login`, `/u/login/identifier`, `/u/login/password`).
